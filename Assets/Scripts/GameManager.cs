@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
 using System.IO;
+using UnityEngine.Networking;
 
 public class GameManager : MonoBehaviour
 {
@@ -30,9 +31,9 @@ public class GameManager : MonoBehaviour
     [Header("Image:")]
     public Image buttonImage;
 
-    private const string SettingsFileName = "Settings.json";
-    private const string GreetingFileName = "Greeting.json";
-    private const string AssetBundleName = "Sprite";
+    private const string SettingsUrl = "https://raw.githubusercontent.com/artem-retriver/TestovoeForMyWay/refs/heads/main/Assets/StreamingAssets/Settings.json";
+    private const string GreetingUrl = "https://raw.githubusercontent.com/artem-retriver/TestovoeForMyWay/refs/heads/main/Assets/StreamingAssets/Greeting.json";
+    private const string AssetBundleUrl = "https://raw.githubusercontent.com/artem-retriver/TestovoeForMyWay/refs/heads/main/Assets/StreamingAssets/sprite";
 
     private int _counter;
     private string _saveFilePath;
@@ -49,14 +50,14 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator LoadContent(bool isNeedNewSettings = false)
     {
-        yield return StartCoroutine(LoadLocalJson(SettingsFileName, (json) =>
+        yield return StartCoroutine(LoadRemoteJson(SettingsUrl, (json) =>
         {
             SettingsData settings = JsonUtility.FromJson<SettingsData>(json);
             _counter = LoadCounter(settings.startingNumber, isNeedNewSettings);
             UpdateCounterText();
         }));
 
-        yield return StartCoroutine(LoadLocalJson(GreetingFileName, (json) =>
+        yield return StartCoroutine(LoadRemoteJson(GreetingUrl, (json) =>
         {
             GreetingData greeting = JsonUtility.FromJson<GreetingData>(json);
             greetingText.text = greeting.message;
@@ -67,48 +68,65 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(3f);
     }
 
-    private static IEnumerator LoadLocalJson(string fileName, System.Action<string> callback)
+    private static IEnumerator LoadRemoteJson(string url, System.Action<string> callback)
     {
-        string filePath = Path.Combine(Application.streamingAssetsPath, fileName);
-        if (File.Exists(filePath))
+        UnityWebRequest request = UnityWebRequest.Get(url);
+        
+        try
         {
-            string json = File.ReadAllText(filePath);
-            callback(json);
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                callback(request.downloadHandler.text);
+            }
+            else
+            {
+                Debug.LogError($"Failed to load JSON from {url}: {request.error}");
+            }
         }
-        else
+        finally
         {
-            Debug.LogError($"Failed to load JSON file: {filePath}");
+            request?.Dispose();
         }
-        yield return null;
     }
 
     private IEnumerator LoadAssetBundle()
     {
-        string bundlePath = Path.Combine(Application.streamingAssetsPath, AssetBundleName);
-        if (File.Exists(bundlePath))
+        UnityWebRequest request = UnityWebRequestAssetBundle.GetAssetBundle(AssetBundleUrl);
+        
+        try
         {
-            if (_loadedBundle != null)
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
             {
-                _loadedBundle.Unload(true);
-            }
-            
-            _loadedBundle = AssetBundle.LoadFromFile(bundlePath);
-            
-            if (_loadedBundle != null)
-            {
-                Sprite sprite = _loadedBundle.LoadAsset<Sprite>("sprite");
-                buttonImage.sprite = sprite;
+                if (_loadedBundle != null)
+                {
+                    _loadedBundle.Unload(true);
+                }
+                
+                _loadedBundle = DownloadHandlerAssetBundle.GetContent(request);
+
+                if (_loadedBundle != null)
+                {
+                    Sprite sprite = _loadedBundle.LoadAsset<Sprite>("sprite");
+                    buttonImage.sprite = sprite;
+                }
+                else
+                {
+                    Debug.LogError("Asset Bundle file not found.");
+                }
             }
             else
             {
-                Debug.LogError("Failed to load Asset Bundle.");
+                Debug.LogError("Failed to load Asset Bundle: " + request.error);
             }
         }
-        else
+        finally
         {
-            Debug.LogError("Asset Bundle file not found.");
+            request?.Dispose();
         }
-        yield return null;
     }
 
     private void IncrementCounter()
